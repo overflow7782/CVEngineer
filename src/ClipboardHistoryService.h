@@ -31,6 +31,7 @@ public:
 
     winrt::Windows::ApplicationModel::DataTransfer::SetHistoryItemAsContentStatus Activate(
         std::wstring_view id) const;
+    bool CopyPlainText(std::wstring_view id) const;
     bool Delete(std::wstring_view id);
     bool Clear();
 

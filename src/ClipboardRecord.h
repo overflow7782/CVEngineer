@@ -2,6 +2,7 @@
 
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
 
+#include <optional>
 #include <string>
 
 enum class ContentType {
@@ -29,6 +30,7 @@ struct ClipboardRecord {
     std::wstring typeLabel;
     std::wstring previewText;
     std::wstring metadataText;
+    std::optional<std::wstring> plainText;
     winrt::Windows::Foundation::DateTime timestamp{};
     winrt::Windows::ApplicationModel::DataTransfer::ClipboardHistoryItem item{nullptr};
 };

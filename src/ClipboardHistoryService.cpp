@@ -7,6 +7,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 
 #include <algorithm>
+#include <cstring>
 #include <utility>
 
 using namespace winrt::Windows::ApplicationModel::DataTransfer;
@@ -81,6 +82,46 @@ SetHistoryItemAsContentStatus ClipboardHistoryService::Activate(std::wstring_vie
     return Clipboard::SetHistoryItemAsContent(item);
 }
 
+bool ClipboardHistoryService::CopyPlainText(std::wstring_view id) const {
+    std::optional<std::wstring> plainText;
+    {
+        const std::scoped_lock lock{mutex_};
+        const auto found = std::find_if(records_.begin(), records_.end(), [id](const ClipboardRecord& record) {
+            return record.id == id;
+        });
+        if (found == records_.end() || !found->plainText) {
+            return false;
+        }
+        plainText = found->plainText;
+    }
+
+    const SIZE_T byteCount = (plainText->size() + 1) * sizeof(wchar_t);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, byteCount);
+    if (!memory) {
+        return false;
+    }
+
+    void* buffer = GlobalLock(memory);
+    if (!buffer) {
+        GlobalFree(memory);
+        return false;
+    }
+    std::memcpy(buffer, plainText->c_str(), byteCount);
+    GlobalUnlock(memory);
+
+    if (!OpenClipboard(ownerWindow_)) {
+        GlobalFree(memory);
+        return false;
+    }
+
+    const bool copied = EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+    CloseClipboard();
+    if (!copied) {
+        GlobalFree(memory);
+    }
+    return copied;
+}
+
 bool ClipboardHistoryService::Delete(std::wstring_view id) {
     const auto item = FindItem(id);
     if (!item) {
@@ -145,9 +186,10 @@ winrt::fire_and_forget ClipboardHistoryService::RefreshAsync(
                 } else if (content.Contains(StandardDataFormats::Bitmap())) {
                     record.type = ContentType::Image;
                     record.previewText = L"图片记录（缩略图将在下一阶段实现）";
-                    record.metadataText = L"Windows 位图";
+                    record.metadataText = L"位图";
                 } else if (content.Contains(StandardDataFormats::Text())) {
                     const std::wstring text = (co_await content.GetTextAsync()).c_str();
+                    record.plainText = text;
                     record.type = ContentClassifier::ClassifyText(text);
 
                     if (content.Contains(StandardDataFormats::Html())) {
@@ -164,6 +206,7 @@ winrt::fire_and_forget ClipboardHistoryService::RefreshAsync(
                     record.type = ContentType::Link;
                     const auto uri = co_await content.GetWebLinkAsync();
                     record.previewText = uri.AbsoluteUri().c_str();
+                    record.plainText = record.previewText;
                     record.metadataText = L"Windows WebLink";
                 } else {
                     record.type = ContentType::Unknown;
